@@ -1,0 +1,79 @@
+package sdk
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+)
+
+type streamEvent struct {
+	Type          string `json:"type"`
+	FlagKey       string `json:"flag_key,omitempty"`
+	EnvironmentID string `json:"environment_id,omitempty"`
+}
+
+// Stream connects to the SSE endpoint and invalidates the cache when flags change.
+// It automatically reconnects with exponential backoff on connection failures.
+func (c *Client) Stream(ctx context.Context) error {
+	backoff := time.Second
+
+	for {
+		err := c.streamOnce(ctx)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		if err != nil {
+			time.Sleep(backoff)
+			if backoff < 30*time.Second {
+				backoff *= 2
+			}
+			continue
+		}
+
+		backoff = time.Second
+	}
+}
+
+func (c *Client) streamOnce(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.BaseURL+"/api/v1/stream", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	if c.cfg.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("nori-sdk: stream status %d", resp.StatusCode)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		data := strings.TrimPrefix(line, "data: ")
+		var event streamEvent
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			continue
+		}
+
+		c.InvalidateCache()
+	}
+
+	return scanner.Err()
+}
