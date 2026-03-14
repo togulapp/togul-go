@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -26,6 +27,10 @@ func (c *Client) Stream(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		var apiErr *APIError
+		if errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusUnauthorized || apiErr.StatusCode == http.StatusForbidden) {
+			return err
+		}
 
 		if err != nil {
 			time.Sleep(backoff)
@@ -40,14 +45,16 @@ func (c *Client) Stream(ctx context.Context) error {
 }
 
 func (c *Client) streamOnce(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.BaseURL+"/api/v1/stream", nil)
+	if strings.TrimSpace(c.cfg.APIKey) == "" {
+		return errors.New("nori-sdk: APIKey is required")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(c.cfg.BaseURL, "/")+"/api/v1/stream", nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "text/event-stream")
-	if c.cfg.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
-	}
+	req.Header.Set("X-API-Key", c.cfg.APIKey)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -56,7 +63,8 @@ func (c *Client) streamOnce(ctx context.Context) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("nori-sdk: stream status %d", resp.StatusCode)
+		err := decodeAPIError(resp)
+		return fmt.Errorf("nori-sdk: stream failed: %w", err)
 	}
 
 	scanner := bufio.NewScanner(resp.Body)

@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -31,6 +35,22 @@ type Client struct {
 	cfg   Config
 	http  *http.Client
 	cache sync.Map
+}
+
+type APIError struct {
+	StatusCode int
+	Code       string
+	Message    string
+}
+
+func (e *APIError) Error() string {
+	if e.Code != "" && e.Message != "" {
+		return fmt.Sprintf("nori-sdk: api error %d %s: %s", e.StatusCode, e.Code, e.Message)
+	}
+	if e.Message != "" {
+		return fmt.Sprintf("nori-sdk: api error %d: %s", e.StatusCode, e.Message)
+	}
+	return fmt.Sprintf("nori-sdk: api error %d", e.StatusCode)
 }
 
 type cacheEntry struct {
@@ -72,10 +92,7 @@ func NewClient(cfg Config) *Client {
 
 // IsEnabled evaluates a feature flag for the given context.
 func (c *Client) IsEnabled(ctx context.Context, key string, userCtx map[string]string) (bool, error) {
-	cacheKey := key + ":" + c.cfg.Environment
-	if userID, ok := userCtx["user_id"]; ok {
-		cacheKey += ":" + userID
-	}
+	cacheKey := cacheKeyFor(key, c.cfg.Environment, userCtx)
 
 	if entry, ok := c.cache.Load(cacheKey); ok {
 		ce := entry.(cacheEntry)
@@ -104,6 +121,10 @@ func (c *Client) IsEnabled(ctx context.Context, key string, userCtx map[string]s
 }
 
 func (c *Client) evaluate(ctx context.Context, key string, userCtx map[string]string) (bool, error) {
+	if strings.TrimSpace(c.cfg.APIKey) == "" {
+		return false, errors.New("nori-sdk: APIKey is required")
+	}
+
 	body, err := json.Marshal(evaluateRequest{
 		FlagKey:        key,
 		EnvironmentKey: c.cfg.Environment,
@@ -119,14 +140,12 @@ func (c *Client) evaluate(ctx context.Context, key string, userCtx map[string]st
 			time.Sleep(time.Duration(attempt*100) * time.Millisecond)
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.BaseURL+"/api/v1/evaluate", bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.cfg.BaseURL, "/")+"/api/v1/evaluate", bytes.NewReader(body))
 		if err != nil {
 			return false, fmt.Errorf("nori-sdk: request error: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
-		if c.cfg.APIKey != "" {
-			req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
-		}
+		req.Header.Set("X-API-Key", c.cfg.APIKey)
 
 		resp, err := c.http.Do(req)
 		if err != nil {
@@ -135,8 +154,12 @@ func (c *Client) evaluate(ctx context.Context, key string, userCtx map[string]st
 		}
 
 		if resp.StatusCode != http.StatusOK {
+			apiErr := decodeAPIError(resp)
 			resp.Body.Close()
-			lastErr = fmt.Errorf("nori-sdk: unexpected status %d", resp.StatusCode)
+			lastErr = apiErr
+			if !shouldRetry(resp.StatusCode) {
+				return false, apiErr
+			}
 			continue
 		}
 
@@ -160,4 +183,44 @@ func (c *Client) InvalidateCache() {
 		c.cache.Delete(key)
 		return true
 	})
+}
+
+func shouldRetry(status int) bool {
+	return status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
+}
+
+func decodeAPIError(resp *http.Response) error {
+	body, _ := io.ReadAll(resp.Body)
+	var payload struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &payload)
+	}
+
+	return &APIError{
+		StatusCode: resp.StatusCode,
+		Code:       payload.Code,
+		Message:    payload.Message,
+	}
+}
+
+func cacheKeyFor(flagKey, environment string, userCtx map[string]string) string {
+	parts := []string{flagKey, environment}
+	if len(userCtx) == 0 {
+		return strings.Join(parts, ":")
+	}
+
+	keys := make([]string, 0, len(userCtx))
+	for key := range userCtx {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		parts = append(parts, key+"="+userCtx[key])
+	}
+
+	return strings.Join(parts, ":")
 }

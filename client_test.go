@@ -12,6 +12,12 @@ import (
 func TestClient_IsEnabled_CacheHit(t *testing.T) {
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-API-Key"); got != "test-key" {
+			t.Fatalf("expected X-API-Key header, got %q", got)
+		}
+		if auth := r.Header.Get("Authorization"); auth != "" {
+			t.Fatalf("did not expect Authorization header, got %q", auth)
+		}
 		callCount++
 		json.NewEncoder(w).Encode(evaluateResponse{
 			FlagKey: "test",
@@ -24,6 +30,7 @@ func TestClient_IsEnabled_CacheHit(t *testing.T) {
 
 	client := NewClient(Config{
 		BaseURL:     server.URL,
+		APIKey:      "test-key",
 		Environment: "test",
 		CacheTTL:    5 * time.Second,
 	})
@@ -62,6 +69,7 @@ func TestClient_IsEnabled_FailClosed(t *testing.T) {
 
 	client := NewClient(Config{
 		BaseURL:      server.URL,
+		APIKey:       "test-key",
 		Environment:  "test",
 		FallbackMode: FailClosed,
 		RetryCount:   1,
@@ -84,6 +92,7 @@ func TestClient_IsEnabled_FailOpen(t *testing.T) {
 
 	client := NewClient(Config{
 		BaseURL:      server.URL,
+		APIKey:       "test-key",
 		Environment:  "test",
 		FallbackMode: FailOpen,
 		RetryCount:   1,
@@ -108,6 +117,7 @@ func TestClient_InvalidateCache(t *testing.T) {
 
 	client := NewClient(Config{
 		BaseURL:     server.URL,
+		APIKey:      "test-key",
 		Environment: "test",
 		CacheTTL:    5 * time.Second,
 	})
@@ -119,5 +129,57 @@ func TestClient_InvalidateCache(t *testing.T) {
 
 	if callCount != 2 {
 		t.Errorf("expected 2 API calls after cache invalidation, got %d", callCount)
+	}
+}
+
+func TestClient_IsEnabled_CacheKeyIncludesFullContext(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		json.NewEncoder(w).Encode(evaluateResponse{Value: true})
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		BaseURL:     server.URL,
+		APIKey:      "test-key",
+		Environment: "test",
+		CacheTTL:    5 * time.Second,
+	})
+
+	ctx := context.Background()
+	_, _ = client.IsEnabled(ctx, "test", map[string]string{"user_id": "u1", "country": "TR"})
+	_, _ = client.IsEnabled(ctx, "test", map[string]string{"user_id": "u1", "country": "US"})
+
+	if callCount != 2 {
+		t.Fatalf("expected 2 API calls for different contexts, got %d", callCount)
+	}
+}
+
+func TestClient_IsEnabled_DoesNotRetryClientErrors(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{
+			"code":    "evaluate.environment_forbidden",
+			"message": "API key does not have access to this environment",
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		BaseURL:     server.URL,
+		APIKey:      "test-key",
+		Environment: "test",
+		RetryCount:  3,
+	})
+
+	_, err := client.IsEnabled(context.Background(), "test", nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if callCount != 1 {
+		t.Fatalf("expected a single request for client error, got %d", callCount)
 	}
 }
