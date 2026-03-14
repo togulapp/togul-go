@@ -1,0 +1,39 @@
+name: Contract Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 8 * * 1"
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download latest OpenAPI spec
+        env:
+          GH_TOKEN: ${{ secrets.NORI_SYNC_TOKEN }}
+        run: |
+          gh api repos/noriapp/nori/contents/openapi.yaml \
+            -H "Accept: application/vnd.github.raw+json" \
+            > /tmp/openapi.yaml
+
+      - name: Verify evaluate endpoint exists
+        run: |
+          if ! grep -q '/api/v1/evaluate' /tmp/openapi.yaml; then
+            echo "ERROR: /api/v1/evaluate endpoint missing from spec"
+            exit 1
+          fi
+          echo "Contract check passed"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Run tests
+        run: go test ./... -v
