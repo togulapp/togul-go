@@ -1,3 +1,3 @@
-module github.com/noriapp/nori-go
+module github.com/togulapp/togul-go
 
 go 1.25.0

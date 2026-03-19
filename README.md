@@ -1,11 +1,11 @@
-# Nori Go SDK
+# Togul Go SDK
 
-Go client for evaluating Nori feature flags and consuming the SSE invalidation stream.
+Go client for evaluating Togul feature flags and consuming the SSE invalidation stream.
 
 ## Install
 
 ```bash
-go get github.com/noriapp/nori-go
+go get github.com/togulapp/togul-go
 ```
 
 ## Usage
@@ -17,7 +17,7 @@ import (
 	"context"
 	"time"
 
-	sdk "github.com/noriapp/nori-go"
+	sdk "github.com/togulapp/togul-go"
 )
 
 func main() {

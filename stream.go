@@ -46,7 +46,7 @@ func (c *Client) Stream(ctx context.Context) error {
 
 func (c *Client) streamOnce(ctx context.Context) error {
 	if strings.TrimSpace(c.cfg.APIKey) == "" {
-		return errors.New("nori-sdk: APIKey is required")
+		return errors.New("togul-sdk: APIKey is required")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(c.cfg.BaseURL, "/")+"/api/v1/stream", nil)
@@ -64,7 +64,7 @@ func (c *Client) streamOnce(ctx context.Context) error {
 
 	if resp.StatusCode != http.StatusOK {
 		err := decodeAPIError(resp)
-		return fmt.Errorf("nori-sdk: stream failed: %w", err)
+		return fmt.Errorf("togul-sdk: stream failed: %w", err)
 	}
 
 	scanner := bufio.NewScanner(resp.Body)

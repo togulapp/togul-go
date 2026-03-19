@@ -16,7 +16,7 @@ jobs:
 
       - name: Download latest OpenAPI spec
         run: |
-          if ! curl -fsSL https://raw.githubusercontent.com/noriapp/nori/main/openapi.yaml \
+          if ! curl -fsSL https://raw.githubusercontent.com/togulapp/togul/main/openapi.yaml \
             -o /tmp/openapi.yaml; then
             echo "WARN: remote OpenAPI spec is not accessible from this workflow; skipping remote contract check"
             rm -f /tmp/openapi.yaml

@@ -45,12 +45,12 @@ type APIError struct {
 
 func (e *APIError) Error() string {
 	if e.Code != "" && e.Message != "" {
-		return fmt.Sprintf("nori-sdk: api error %d %s: %s", e.StatusCode, e.Code, e.Message)
+		return fmt.Sprintf("togul-sdk: api error %d %s: %s", e.StatusCode, e.Code, e.Message)
 	}
 	if e.Message != "" {
-		return fmt.Sprintf("nori-sdk: api error %d: %s", e.StatusCode, e.Message)
+		return fmt.Sprintf("togul-sdk: api error %d: %s", e.StatusCode, e.Message)
 	}
-	return fmt.Sprintf("nori-sdk: api error %d", e.StatusCode)
+	return fmt.Sprintf("togul-sdk: api error %d", e.StatusCode)
 }
 
 type cacheEntry struct {
@@ -122,7 +122,7 @@ func (c *Client) IsEnabled(ctx context.Context, key string, userCtx map[string]s
 
 func (c *Client) evaluate(ctx context.Context, key string, userCtx map[string]string) (bool, error) {
 	if strings.TrimSpace(c.cfg.APIKey) == "" {
-		return false, errors.New("nori-sdk: APIKey is required")
+		return false, errors.New("togul-sdk: APIKey is required")
 	}
 
 	body, err := json.Marshal(evaluateRequest{
@@ -131,7 +131,7 @@ func (c *Client) evaluate(ctx context.Context, key string, userCtx map[string]st
 		Context:        userCtx,
 	})
 	if err != nil {
-		return false, fmt.Errorf("nori-sdk: marshal error: %w", err)
+		return false, fmt.Errorf("togul-sdk: marshal error: %w", err)
 	}
 
 	var lastErr error
@@ -142,7 +142,7 @@ func (c *Client) evaluate(ctx context.Context, key string, userCtx map[string]st
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.cfg.BaseURL, "/")+"/api/v1/evaluate", bytes.NewReader(body))
 		if err != nil {
-			return false, fmt.Errorf("nori-sdk: request error: %w", err)
+			return false, fmt.Errorf("togul-sdk: request error: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-API-Key", c.cfg.APIKey)
@@ -166,7 +166,7 @@ func (c *Client) evaluate(ctx context.Context, key string, userCtx map[string]st
 		var evalResp evaluateResponse
 		if err := json.NewDecoder(resp.Body).Decode(&evalResp); err != nil {
 			resp.Body.Close()
-			lastErr = fmt.Errorf("nori-sdk: decode error: %w", err)
+			lastErr = fmt.Errorf("togul-sdk: decode error: %w", err)
 			continue
 		}
 		resp.Body.Close()
@@ -174,7 +174,7 @@ func (c *Client) evaluate(ctx context.Context, key string, userCtx map[string]st
 		return evalResp.Value, nil
 	}
 
-	return false, fmt.Errorf("nori-sdk: all retries failed: %w", lastErr)
+	return false, fmt.Errorf("togul-sdk: all retries failed: %w", lastErr)
 }
 
 // InvalidateCache clears all cached flag values.
