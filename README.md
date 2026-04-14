@@ -22,7 +22,6 @@ import (
 
 func main() {
 	client := sdk.NewClient(sdk.Config{
-		BaseURL:      "http://localhost:8080",
 		APIKey:       "your-environment-api-key",
 		Environment:  "production",
 		CacheTTL:     30 * time.Second,
