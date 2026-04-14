@@ -32,10 +32,14 @@ type Config struct {
 }
 
 type Client struct {
-	cfg   Config
-	http  *http.Client
-	cache sync.Map
+	cfg       Config
+	http      *http.Client
+	cache     sync.Map
+	listeners []CacheListener
+	mu        sync.RWMutex
 }
+
+type CacheListener func(flagKey string)
 
 type APIError struct {
 	StatusCode int
@@ -183,6 +187,34 @@ func (c *Client) InvalidateCache() {
 		c.cache.Delete(key)
 		return true
 	})
+	c.notifyListeners("")
+}
+
+// InvalidateFlag clears a specific flag from cache.
+func (c *Client) InvalidateFlag(key string) {
+	prefix := key + ":"
+	c.cache.Range(func(k, _ any) bool {
+		if strings.HasPrefix(k.(string), prefix) {
+			c.cache.Delete(k)
+		}
+		return true
+	})
+	c.notifyListeners(key)
+}
+
+// OnCacheInvalidated registers a listener for cache invalidation events.
+func (c *Client) OnCacheInvalidated(listener CacheListener) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.listeners = append(c.listeners, listener)
+}
+
+func (c *Client) notifyListeners(flagKey string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, l := range c.listeners {
+		l(flagKey)
+	}
 }
 
 func shouldRetry(status int) bool {

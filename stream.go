@@ -80,7 +80,11 @@ func (c *Client) streamOnce(ctx context.Context) error {
 			continue
 		}
 
-		c.InvalidateCache()
+		if event.FlagKey != "" {
+			c.InvalidateFlag(event.FlagKey)
+		} else {
+			c.InvalidateCache()
+		}
 	}
 
 	return scanner.Err()
