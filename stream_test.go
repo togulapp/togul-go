@@ -28,9 +28,9 @@ func TestClient_Stream_UsesAPIKeyHeader(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(Config{
-		BaseURL: server.URL,
 		APIKey:  "stream-key",
 		Timeout: time.Second,
+		baseURL: server.URL,
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())

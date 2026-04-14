@@ -49,7 +49,7 @@ func (c *Client) streamOnce(ctx context.Context) error {
 		return errors.New("togul-sdk: APIKey is required")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(c.cfg.BaseURL, "/")+"/api/v1/stream", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.getBaseURL()+"/api/v1/stream", nil)
 	if err != nil {
 		return err
 	}

@@ -29,10 +29,10 @@ func TestClient_IsEnabled_CacheHit(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(Config{
-		BaseURL:     server.URL,
 		APIKey:      "test-key",
 		Environment: "test",
 		CacheTTL:    5 * time.Second,
+		baseURL:     server.URL,
 	})
 
 	ctx := context.Background()
@@ -68,11 +68,11 @@ func TestClient_IsEnabled_FailClosed(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(Config{
-		BaseURL:      server.URL,
 		APIKey:       "test-key",
 		Environment:  "test",
 		FallbackMode: FailClosed,
 		RetryCount:   1,
+		baseURL:      server.URL,
 	})
 
 	val, err := client.IsEnabled(context.Background(), "test", nil)
@@ -91,11 +91,11 @@ func TestClient_IsEnabled_FailOpen(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(Config{
-		BaseURL:      server.URL,
 		APIKey:       "test-key",
 		Environment:  "test",
 		FallbackMode: FailOpen,
 		RetryCount:   1,
+		baseURL:      server.URL,
 	})
 
 	val, err := client.IsEnabled(context.Background(), "test", nil)
@@ -116,10 +116,10 @@ func TestClient_InvalidateCache(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(Config{
-		BaseURL:     server.URL,
 		APIKey:      "test-key",
 		Environment: "test",
 		CacheTTL:    5 * time.Second,
+		baseURL:     server.URL,
 	})
 
 	ctx := context.Background()
@@ -141,10 +141,10 @@ func TestClient_IsEnabled_CacheKeyIncludesFullContext(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(Config{
-		BaseURL:     server.URL,
 		APIKey:      "test-key",
 		Environment: "test",
 		CacheTTL:    5 * time.Second,
+		baseURL:     server.URL,
 	})
 
 	ctx := context.Background()
@@ -169,10 +169,10 @@ func TestClient_IsEnabled_DoesNotRetryClientErrors(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(Config{
-		BaseURL:     server.URL,
 		APIKey:      "test-key",
 		Environment: "test",
-		RetryCount:  3,
+		CacheTTL:    5 * time.Second,
+		baseURL:     server.URL,
 	})
 
 	_, err := client.IsEnabled(context.Background(), "test", nil)

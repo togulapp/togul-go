@@ -21,14 +21,23 @@ const (
 	FailOpen                       // return true on error
 )
 
+const defaultBaseURL = "https://api.togul.io"
+
 type Config struct {
-	BaseURL      string
 	APIKey       string
 	Environment  string
 	Timeout      time.Duration
 	CacheTTL     time.Duration
 	FallbackMode FallbackMode
 	RetryCount   int
+	baseURL      string
+}
+
+func (c *Config) getBaseURL() string {
+	if c.baseURL != "" {
+		return c.baseURL
+	}
+	return defaultBaseURL
 }
 
 type Client struct {
@@ -144,7 +153,7 @@ func (c *Client) evaluate(ctx context.Context, key string, userCtx map[string]st
 			time.Sleep(time.Duration(attempt*100) * time.Millisecond)
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.cfg.BaseURL, "/")+"/api/v1/evaluate", bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.getBaseURL()+"/api/v1/evaluate", bytes.NewReader(body))
 		if err != nil {
 			return false, fmt.Errorf("togul-sdk: request error: %w", err)
 		}
