@@ -66,8 +66,64 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("togul-sdk: api error %d", e.StatusCode)
 }
 
+// EvaluateResult holds the full flag evaluation response with typed value accessors.
+type EvaluateResult struct {
+	FlagKey   string
+	Enabled   bool
+	ValueType string
+	raw       json.RawMessage
+	Reason    string
+}
+
+// BoolValue returns the flag value as bool, or fallback if disabled or type mismatch.
+func (r EvaluateResult) BoolValue(fallback bool) bool {
+	if !r.Enabled || r.ValueType != "boolean" {
+		return fallback
+	}
+	var v bool
+	if err := json.Unmarshal(r.raw, &v); err != nil {
+		return fallback
+	}
+	return v
+}
+
+// StringValue returns the flag value as string, or fallback if disabled or type mismatch.
+func (r EvaluateResult) StringValue(fallback string) string {
+	if !r.Enabled || r.ValueType != "string" {
+		return fallback
+	}
+	var v string
+	if err := json.Unmarshal(r.raw, &v); err != nil {
+		return fallback
+	}
+	return v
+}
+
+// NumberValue returns the flag value as float64, or fallback if disabled or type mismatch.
+func (r EvaluateResult) NumberValue(fallback float64) float64 {
+	if !r.Enabled || r.ValueType != "number" {
+		return fallback
+	}
+	var v float64
+	if err := json.Unmarshal(r.raw, &v); err != nil {
+		return fallback
+	}
+	return v
+}
+
+// JSONValue unmarshals the flag value into dst. Returns error if disabled or type mismatch.
+func (r EvaluateResult) JSONValue(dst any) error {
+	if !r.Enabled {
+		return errors.New("togul-sdk: flag is disabled")
+	}
+	if r.ValueType != "json" {
+		return fmt.Errorf("togul-sdk: flag %q has value_type %q, not json", r.FlagKey, r.ValueType)
+	}
+	return json.Unmarshal(r.raw, dst)
+}
+
 type cacheEntry struct {
-	value     bool
+	result    EvaluateResult
 	expiresAt time.Time
 }
 
@@ -78,10 +134,11 @@ type evaluateRequest struct {
 }
 
 type evaluateResponse struct {
-	FlagKey string `json:"flag_key"`
-	Enabled bool   `json:"enabled"`
-	Value   bool   `json:"value"`
-	Reason  string `json:"reason"`
+	FlagKey   string          `json:"flag_key"`
+	Enabled   bool            `json:"enabled"`
+	ValueType string          `json:"value_type"`
+	Value     json.RawMessage `json:"value"`
+	Reason    string          `json:"reason"`
 }
 
 func NewClient(cfg Config) *Client {
@@ -103,19 +160,10 @@ func NewClient(cfg Config) *Client {
 	}
 }
 
-// IsEnabled evaluates a feature flag for the given context.
+// IsEnabled evaluates a feature flag and returns whether it is enabled.
+// For typed values, use Evaluate or the typed helpers (EvaluateBool, EvaluateString, etc.).
 func (c *Client) IsEnabled(ctx context.Context, key string, userCtx map[string]string) (bool, error) {
-	cacheKey := cacheKeyFor(key, c.cfg.Environment, userCtx)
-
-	if entry, ok := c.cache.Load(cacheKey); ok {
-		ce := entry.(cacheEntry)
-		if time.Now().Before(ce.expiresAt) {
-			return ce.value, nil
-		}
-		c.cache.Delete(cacheKey)
-	}
-
-	value, err := c.evaluate(ctx, key, userCtx)
+	result, err := c.Evaluate(ctx, key, userCtx)
 	if err != nil {
 		switch c.cfg.FallbackMode {
 		case FailOpen:
@@ -124,18 +172,74 @@ func (c *Client) IsEnabled(ctx context.Context, key string, userCtx map[string]s
 			return false, err
 		}
 	}
+	return result.Enabled, nil
+}
+
+// Evaluate returns the full EvaluateResult for a flag, including typed value accessors.
+func (c *Client) Evaluate(ctx context.Context, key string, userCtx map[string]string) (EvaluateResult, error) {
+	cacheKey := cacheKeyFor(key, c.cfg.Environment, userCtx)
+
+	if entry, ok := c.cache.Load(cacheKey); ok {
+		ce := entry.(cacheEntry)
+		// Empty ValueType means stale/invalid entry — treat as cache miss.
+		if time.Now().Before(ce.expiresAt) && ce.result.ValueType != "" {
+			return ce.result, nil
+		}
+		c.cache.Delete(cacheKey)
+	}
+
+	result, err := c.evaluate(ctx, key, userCtx)
+	if err != nil {
+		return EvaluateResult{}, err
+	}
 
 	c.cache.Store(cacheKey, cacheEntry{
-		value:     value,
+		result:    result,
 		expiresAt: time.Now().Add(c.cfg.CacheTTL),
 	})
 
-	return value, nil
+	return result, nil
 }
 
-func (c *Client) evaluate(ctx context.Context, key string, userCtx map[string]string) (bool, error) {
+// EvaluateBool returns the flag value as bool, falling back to fallback on error or type mismatch.
+func (c *Client) EvaluateBool(ctx context.Context, key string, userCtx map[string]string, fallback bool) (bool, error) {
+	result, err := c.Evaluate(ctx, key, userCtx)
+	if err != nil {
+		return fallback, err
+	}
+	return result.BoolValue(fallback), nil
+}
+
+// EvaluateString returns the flag value as string, falling back to fallback on error or type mismatch.
+func (c *Client) EvaluateString(ctx context.Context, key string, userCtx map[string]string, fallback string) (string, error) {
+	result, err := c.Evaluate(ctx, key, userCtx)
+	if err != nil {
+		return fallback, err
+	}
+	return result.StringValue(fallback), nil
+}
+
+// EvaluateNumber returns the flag value as float64, falling back to fallback on error or type mismatch.
+func (c *Client) EvaluateNumber(ctx context.Context, key string, userCtx map[string]string, fallback float64) (float64, error) {
+	result, err := c.Evaluate(ctx, key, userCtx)
+	if err != nil {
+		return fallback, err
+	}
+	return result.NumberValue(fallback), nil
+}
+
+// EvaluateJSON unmarshals the flag JSON value into dst.
+func (c *Client) EvaluateJSON(ctx context.Context, key string, userCtx map[string]string, dst any) error {
+	result, err := c.Evaluate(ctx, key, userCtx)
+	if err != nil {
+		return err
+	}
+	return result.JSONValue(dst)
+}
+
+func (c *Client) evaluate(ctx context.Context, key string, userCtx map[string]string) (EvaluateResult, error) {
 	if strings.TrimSpace(c.cfg.APIKey) == "" {
-		return false, errors.New("togul-sdk: APIKey is required")
+		return EvaluateResult{}, errors.New("togul-sdk: APIKey is required")
 	}
 
 	body, err := json.Marshal(evaluateRequest{
@@ -144,7 +248,7 @@ func (c *Client) evaluate(ctx context.Context, key string, userCtx map[string]st
 		Context:        userCtx,
 	})
 	if err != nil {
-		return false, fmt.Errorf("togul-sdk: marshal error: %w", err)
+		return EvaluateResult{}, fmt.Errorf("togul-sdk: marshal error: %w", err)
 	}
 
 	var lastErr error
@@ -155,7 +259,7 @@ func (c *Client) evaluate(ctx context.Context, key string, userCtx map[string]st
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.getBaseURL()+"/api/v1/evaluate", bytes.NewReader(body))
 		if err != nil {
-			return false, fmt.Errorf("togul-sdk: request error: %w", err)
+			return EvaluateResult{}, fmt.Errorf("togul-sdk: request error: %w", err)
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-API-Key", c.cfg.APIKey)
@@ -171,7 +275,7 @@ func (c *Client) evaluate(ctx context.Context, key string, userCtx map[string]st
 			resp.Body.Close()
 			lastErr = apiErr
 			if !shouldRetry(resp.StatusCode) {
-				return false, apiErr
+				return EvaluateResult{}, apiErr
 			}
 			continue
 		}
@@ -184,10 +288,16 @@ func (c *Client) evaluate(ctx context.Context, key string, userCtx map[string]st
 		}
 		resp.Body.Close()
 
-		return evalResp.Value, nil
+		return EvaluateResult{
+			FlagKey:   evalResp.FlagKey,
+			Enabled:   evalResp.Enabled,
+			ValueType: evalResp.ValueType,
+			raw:       evalResp.Value,
+			Reason:    evalResp.Reason,
+		}, nil
 	}
 
-	return false, fmt.Errorf("togul-sdk: all retries failed: %w", lastErr)
+	return EvaluateResult{}, fmt.Errorf("togul-sdk: all retries failed: %w", lastErr)
 }
 
 // InvalidateCache clears all cached flag values.
