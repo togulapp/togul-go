@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	sdk "github.com/togulapp/togul-go"
@@ -29,11 +30,32 @@ func main() {
 		RetryCount:   2,
 	})
 
-	enabled, err := client.IsEnabled(context.Background(), "new-dashboard", map[string]string{
+	result, err := client.Evaluate(context.Background(), "new-dashboard", map[string]string{
 		"user_id": "user-123",
 		"country": "TR",
 	})
-	_, _ = enabled, err
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(result.Enabled)   // true
+	fmt.Println(result.ValueType) // "string"
+	fmt.Println(result.Value)     // "dark_mode"
+	fmt.Println(result.Reason)    // "rule_match"
+}
+```
+
+## EvaluateResult
+
+`Evaluate` returns an `EvaluateResult` struct:
+
+```go
+type EvaluateResult struct {
+	FlagKey   string
+	Enabled   bool
+	ValueType string // "boolean" | "string" | "number" | "json"
+	Value     any
+	Reason    string
 }
 ```
 
